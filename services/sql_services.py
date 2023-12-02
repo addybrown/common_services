@@ -3,7 +3,7 @@ import os
 import pandas as pd
 import logging
 
-from common.pandas_services import convert_datetime_timestamp_cols_to_string
+from services.pandas_services import convert_datetime_timestamp_cols_to_string
 
 database_user_name = os.environ.get("mysql_user_name")
 database_user_name = "root"

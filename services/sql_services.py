@@ -5,14 +5,13 @@ import logging
 
 from services.pandas_services import convert_datetime_timestamp_cols_to_string
 
-database_user_name = os.environ.get("mysql_user_name")
-database_user_name = "root"
-database_pw = os.environ.get("mysql_pw")
-host_name = os.environ.get("mysql_host_name")
-port_value = os.environ.get("mysql_port_value")
-database_name_str = os.environ.get("mysql_database_name")
+database_user_name = os.environ.get("db_user_name")
+database_pw = os.environ.get("db_pw")
+host_name = os.environ.get("db_host")
+port_value = os.environ.get("db_port")
+database_name_str = os.environ.get("db_name")
 
-connector = "mysql+mysqlconnector"
+connector = "postgresql+psycopg2"
 
 
 def format_sql_string(sql_string, format_brackets=True):
@@ -274,7 +273,9 @@ def bulk_upsert_sql(
         raise exc
 
 
-def bulk_upsert_write_sql(df, dbtable, dbschema, session=None, **kwargs):
+def bulk_upsert_write_sql(
+    df, dbtable, dbschema, session=None, set_columns=None, **kwargs
+):
     """
     bulk upserts dataframe: df, to schema: dbschema and table: dbtable,
     if there are new values, it appends to the existing dbtable at the dbschema
@@ -286,6 +287,7 @@ def bulk_upsert_write_sql(df, dbtable, dbschema, session=None, **kwargs):
     * dbschema: the target schema
     * dbtable: the target database table
     * session: a db connection if exists, if not created in default
+    * set_columns: if set_columns exists.
 
     returns: row count of df
 
@@ -296,15 +298,17 @@ def bulk_upsert_write_sql(df, dbtable, dbschema, session=None, **kwargs):
 
     try:
 
-        def mysql_upsert(table, conn, keys, data_iter):
-            from sqlalchemy.dialects.mysql import insert
+        def postgres_upsert(table, conn, keys, data_iter):
+            from sqlalchemy.dialects.postgresql import insert
 
             data = [dict(zip(keys, row)) for row in data_iter]
+
             insert_statement = insert(table.table).values(data)
-            upsert_statement = insert_statement.on_duplicate_key_update(
-                # constraint=f"{table.table.name}_pk",
-                {c.key: c for c in insert_statement.table.columns if not c.primary_key}
-                # set_={c.key: c for c in insert_statement.values()},
+            upsert_statement = insert_statement.on_conflict_do_update(
+                constraint=f"{table.table.name}_pk",
+                set_=set_columns
+                if set_columns
+                else {c.key: c for c in insert_statement.excluded},
             )
             conn.execute(upsert_statement)
 
@@ -315,10 +319,10 @@ def bulk_upsert_write_sql(df, dbtable, dbschema, session=None, **kwargs):
             if_exists="append",
             index=False,
             chunksize=10000,
-            method=mysql_upsert,
+            method=postgres_upsert,
         )
 
-        logging.info(f"upserted' {str(len(df))} rows to {dbschema}.{dbtable}")
+        logging.info(f"upserted {str(len(df))} rows to {dbschema}.{dbtable}")
 
     except Exception as exc:
         raise exc
